@@ -9,23 +9,28 @@ import { useState, useEffect } from "react";
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login, loginWithGoogle, loginWithGithub, user } = useAuth();
+  const { login, loginWithGoogle, loginWithGithub, user, appUser } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      navigate("/");
+    if (user && appUser) {
+      // Redirect admin users to admin panel, others to dashboard
+      if (appUser.role === "admin") {
+        navigate("/admin");
+      } else {
+        navigate("/dashboard");
+      }
     }
-  }, [user, navigate]);
+  }, [user, appUser, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
       await login(email, password);
-      navigate("/");
+      // Navigation will be handled by the useEffect above
     } catch (error) {
       console.error(error);
     } finally {
@@ -37,7 +42,7 @@ export default function Login() {
     setLoading(true);
     try {
       await loginWithGoogle();
-      navigate("/");
+      // Navigation will be handled by the useEffect above
     } catch (error) {
       console.error(error);
     } finally {
@@ -49,7 +54,7 @@ export default function Login() {
     setLoading(true);
     try {
       await loginWithGithub();
-      navigate("/");
+      // Navigation will be handled by the useEffect above
     } catch (error) {
       console.error(error);
     } finally {
@@ -61,14 +66,12 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
-          <div className="flex justify-center mb-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
-              <span className="text-xl font-bold text-primary-foreground">TF</span>
-            </div>
+          <div className="flex justify-center mb-6">
+            <img src="/logo.png" alt="TaskFlow Logo" className="h-16 w-auto" />
           </div>
           <h1 className="text-3xl font-bold">Welcome back</h1>
           <p className="text-muted-foreground mt-2">
-            Sign in to your TaskFlow Pro account
+            Sign in to your TaskFlow account
           </p>
         </div>
 

@@ -1,20 +1,35 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { UserRole } from "@/types";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
+  requiredRole?: UserRole;
 }
 
-export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { user, loading } = useAuth();
+export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
+  const { user, loading, appUser } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!loading && !user) {
-      navigate("/login");
+    if (!loading) {
+      if (!user) {
+        navigate("/login");
+        return;
+      }
+
+      // Check role-based access if requiredRole is specified
+      if (requiredRole && appUser?.role !== requiredRole) {
+        if (appUser?.role === "admin") {
+          navigate("/admin");
+        } else {
+          navigate("/dashboard");
+        }
+        return;
+      }
     }
-  }, [user, loading, navigate]);
+  }, [user, loading, appUser, requiredRole, navigate]);
 
   if (loading) {
     return (
@@ -25,6 +40,11 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   }
 
   if (!user) {
+    return null;
+  }
+
+  // Check role-based access
+  if (requiredRole && appUser?.role !== requiredRole) {
     return null;
   }
 

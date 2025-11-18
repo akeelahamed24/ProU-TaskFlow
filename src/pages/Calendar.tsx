@@ -1,29 +1,86 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { tasks, users, projects } from "@/data/mockData";
 import { format, isSameDay, parseISO } from "date-fns";
-import { Clock, Flag, FolderKanban } from "lucide-react";
+import { Clock, Flag, FolderKanban, Calendar as CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
+import { taskService } from "@/services/taskService";
+import { projectService } from "@/services/projectService";
+import { calendarService } from "@/services/calendarService";
+import { Task, Project, CalendarEvent } from "@/types";
+import { useToast } from "@/hooks/use-toast";
 
 export default function CalendarPage() {
+  const { user, appUser } = useAuth();
+  const { toast } = useToast();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Get all events (tasks and project deadlines) for a specific date
+  // Fetch data on mount
+  useEffect(() => {
+    if (!appUser?.uid) return;
+
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [userTasks, userProjects, userEvents] = await Promise.all([
+          taskService.getAllTasks(),
+          projectService.getAllProjects(),
+          calendarService.getAllEvents(),
+        ]);
+        setTasks(userTasks);
+        setProjects(userProjects);
+        setCalendarEvents(userEvents);
+      } catch (error) {
+        console.error("Error fetching calendar data:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load calendar data",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [appUser?.uid, toast]);
+
+  // Real-time listeners
+  useEffect(() => {
+    if (!appUser?.uid) return;
+
+    const unsubscribeEvents = calendarService.subscribeToAllEvents((updatedEvents) => {
+      setCalendarEvents(updatedEvents);
+    });
+
+    return () => {
+      unsubscribeEvents();
+    };
+  }, [appUser?.uid]);
+
+  // Get all events (tasks, project deadlines, calendar events) for a specific date
   const getEventsForDate = (date: Date) => {
     const taskEvents = tasks.filter((task) => isSameDay(parseISO(task.dueDate), date));
-    const projectEvents = projects.filter((project) => 
+    const projectEvents = projects.filter((project) =>
       project.nextDueDate && isSameDay(parseISO(project.nextDueDate), date)
     );
-    return { taskEvents, projectEvents };
+    const calendarEventEvents = calendarEvents.filter((event) =>
+      isSameDay(parseISO(event.startDate), date)
+    );
+    return { taskEvents, projectEvents, calendarEventEvents };
   };
 
-  const { taskEvents: tasksOnSelectedDate, projectEvents: projectsOnSelectedDate } = getEventsForDate(selectedDate);
+  const { taskEvents: tasksOnSelectedDate, projectEvents: projectsOnSelectedDate, calendarEventEvents: calendarEventsOnSelectedDate } = getEventsForDate(selectedDate);
 
   // Get dates with events for calendar highlighting
   const datesWithEvents = new Set<string>();
@@ -31,6 +88,7 @@ export default function CalendarPage() {
   projects.forEach((project) => {
     if (project.nextDueDate) datesWithEvents.add(project.nextDueDate);
   });
+  calendarEvents.forEach((event) => datesWithEvents.add(event.startDate.split('T')[0]));
 
   const hasEventsOnDate = (date: Date) => {
     const dateStr = format(date, "yyyy-MM-dd");
@@ -54,13 +112,18 @@ export default function CalendarPage() {
         />
 
         <main className="flex-1 p-6 lg:p-8">
-          <div className="space-y-6">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">Calendar</h1>
-              <p className="text-muted-foreground mt-1">
-                View project timelines and task deadlines
-              </p>
+          {loading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="text-muted-foreground">Loading calendar...</div>
             </div>
+          ) : (
+            <div className="space-y-6">
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight">Calendar</h1>
+                <p className="text-muted-foreground mt-1">
+                  View project timelines and task deadlines
+                </p>
+              </div>
 
             {/* Legend */}
             <Card>
@@ -81,6 +144,10 @@ export default function CalendarPage() {
                   <div className="flex items-center gap-2">
                     <div className="h-3 w-3 rounded-full bg-priority-low" />
                     <span className="text-muted-foreground">Low Priority Task</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CalendarIcon className="h-3 w-3" />
+                    <span className="text-muted-foreground">Calendar Event</span>
                   </div>
                 </div>
               </CardContent>
@@ -140,7 +207,6 @@ export default function CalendarPage() {
                         <span>Task Deadlines</span>
                       </div>
                       {tasksOnSelectedDate.map((task) => {
-                        const assignee = users.find((u) => u.id === task.assignee);
                         const project = projects.find((p) => p.id === task.projectId);
 
                         return (
@@ -170,15 +236,15 @@ export default function CalendarPage() {
                                 <div className="flex items-center gap-2">
                                   <Avatar className="h-6 w-6">
                                     <AvatarImage
-                                      src={assignee?.avatar}
-                                      alt={assignee?.name}
+                                      src={task.assignee?.avatar}
+                                      alt={task.assignee?.name}
                                     />
                                     <AvatarFallback className="text-xs">
-                                      {assignee?.name.substring(0, 2)}
+                                      {task.assignee?.name.substring(0, 2)}
                                     </AvatarFallback>
                                   </Avatar>
                                   <span className="text-muted-foreground">
-                                    {assignee?.name}
+                                    {task.assignee?.name}
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-1 text-muted-foreground">
@@ -193,8 +259,52 @@ export default function CalendarPage() {
                     </div>
                   )}
 
+                  {/* Calendar Events */}
+                  {calendarEventsOnSelectedDate.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <CalendarIcon className="h-4 w-4" />
+                        <span>Calendar Events</span>
+                      </div>
+                      {calendarEventsOnSelectedDate.map((event) => (
+                        <div
+                          key={event.id}
+                          className="flex items-start gap-4 p-4 rounded-lg border border-border hover:bg-accent/50 transition-colors"
+                        >
+                          <div
+                            className="h-10 w-1 rounded-full"
+                            style={{ backgroundColor: event.color || '#6b7280' }}
+                          />
+                          <div className="flex-1 space-y-2">
+                            <div>
+                              <h3 className="font-medium">{event.title}</h3>
+                              {event.description && (
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  {event.description}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                              {event.allDay ? (
+                                <span>All day</span>
+                              ) : (
+                                <span>
+                                  {format(parseISO(event.startDate), "h:mm a")}
+                                  {event.endDate && ` - ${format(parseISO(event.endDate), "h:mm a")}`}
+                                </span>
+                              )}
+                              {event.location && (
+                                <span>{event.location}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {/* No Events */}
-                  {tasksOnSelectedDate.length === 0 && projectsOnSelectedDate.length === 0 && (
+                  {tasksOnSelectedDate.length === 0 && projectsOnSelectedDate.length === 0 && calendarEventsOnSelectedDate.length === 0 && (
                     <div className="text-center py-12 text-muted-foreground">
                       No events scheduled for this date
                     </div>
@@ -310,11 +420,47 @@ export default function CalendarPage() {
                         );
                       })}
                   </div>
+
+                  {/* Upcoming Calendar Events */}
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium flex items-center gap-2">
+                      <CalendarIcon className="h-3.5 w-3.5" />
+                      Events
+                    </h4>
+                    {calendarEvents
+                      .filter((event) => new Date(event.startDate) >= new Date())
+                      .sort((a, b) =>
+                        new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
+                      )
+                      .slice(0, 5)
+                      .map((event) => (
+                        <div
+                          key={event.id}
+                          className="flex items-start gap-3 p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer"
+                          onClick={() => setSelectedDate(parseISO(event.startDate))}
+                        >
+                          <div
+                            className="h-8 w-1 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: event.color || '#6b7280' }}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">
+                              {event.title}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {format(parseISO(event.startDate), "MMM d, yyyy")}
+                              {!event.allDay && ` at ${format(parseISO(event.startDate), "h:mm a")}`}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
                 </CardContent>
               </Card>
             </div>
           </div>
-        </main>
+        )}
+      </main>
       </div>
     </div>
   );

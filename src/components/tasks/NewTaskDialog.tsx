@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -18,11 +18,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { taskService } from "@/services/taskService";
-import { Task } from "@/types";
+import { roleService } from "@/services/roleService";
+import { Task, User } from "@/types";
 
 interface NewTaskDialogProps {
   open: boolean;
@@ -32,20 +34,37 @@ interface NewTaskDialogProps {
   onTaskCreated?: () => void;
 }
 
-export function NewTaskDialog({ 
-  open, 
-  onOpenChange, 
+export function NewTaskDialog({
+  open,
+  onOpenChange,
   projectId,
   defaultStatus = "todo",
-  onTaskCreated 
+  onTaskCreated
 }: NewTaskDialogProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<Task["priority"]>("medium");
   const [dueDate, setDueDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [assigneeId, setAssigneeId] = useState<string>("");
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const allUsers = await roleService.getAllUsers();
+        setUsers(allUsers);
+      } catch (error) {
+        console.error("Failed to fetch users:", error);
+      }
+    };
+
+    if (open) {
+      fetchUsers();
+    }
+  }, [open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,6 +88,7 @@ export function NewTaskDialog({
         status: defaultStatus,
         priority,
         dueDate,
+        assigneeId: assigneeId === "none" ? undefined : assigneeId || undefined,
       });
 
       toast({
@@ -81,6 +101,7 @@ export function NewTaskDialog({
       setDescription("");
       setPriority("medium");
       setDueDate(format(new Date(), "yyyy-MM-dd"));
+      setAssigneeId("");
       onOpenChange(false);
       
       // Reload tasks
@@ -159,6 +180,23 @@ export function NewTaskDialog({
                   required
                 />
               </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="assignee">Assignee (Optional)</Label>
+              <Select value={assigneeId} onValueChange={setAssigneeId}>
+                <SelectTrigger id="assignee">
+                  <SelectValue placeholder="Select assignee" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Unassigned</SelectItem>
+                  {users.map((user) => (
+                    <SelectItem key={user.uid} value={user.uid}>
+                      {user.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>

@@ -1,19 +1,147 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { users } from "@/data/mockData";
-import { User, Bell, Lock, Palette } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { User, Upload, Calendar, Phone, Globe, Clock, Mail, Save } from "lucide-react";
+import { USER_ROLES } from "@/types";
+import { ref, update } from "firebase/database";
+import { db } from "@/lib/firebase";
+
+const LANGUAGES = [
+  { value: "en", label: "English" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "de", label: "German" },
+  { value: "it", label: "Italian" },
+  { value: "pt", label: "Portuguese" },
+  { value: "zh", label: "Chinese" },
+  { value: "ja", label: "Japanese" },
+  { value: "ko", label: "Korean" },
+  { value: "hi", label: "Hindi" },
+];
+
+const TIMEZONES = [
+  { value: "UTC", label: "UTC" },
+  { value: "America/New_York", label: "Eastern Time (ET)" },
+  { value: "America/Chicago", label: "Central Time (CT)" },
+  { value: "America/Denver", label: "Mountain Time (MT)" },
+  { value: "America/Los_Angeles", label: "Pacific Time (PT)" },
+  { value: "Europe/London", label: "Greenwich Mean Time (GMT)" },
+  { value: "Europe/Paris", label: "Central European Time (CET)" },
+  { value: "Asia/Tokyo", label: "Japan Standard Time (JST)" },
+  { value: "Asia/Shanghai", label: "China Standard Time (CST)" },
+  { value: "Asia/Kolkata", label: "India Standard Time (IST)" },
+  { value: "Australia/Sydney", label: "Australian Eastern Time (AET)" },
+];
 
 export default function Settings() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const currentUser = users[0]; // Mock current user
+  const { appUser, updateUserRole } = useAuth();
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+
+  // Form state
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    phoneNumber: "",
+    dateOfBirth: "",
+    preferredLanguage: "en",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    avatar: "",
+  });
+
+  // Load user data
+  useEffect(() => {
+    if (appUser) {
+      setFormData({
+        name: appUser.name || "",
+        email: appUser.email || "",
+        phoneNumber: appUser.phoneNumber || "",
+        dateOfBirth: appUser.dateOfBirth || "",
+        preferredLanguage: appUser.preferredLanguage || "en",
+        timezone: appUser.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+        avatar: appUser.avatar || "",
+      });
+      setAvatarPreview(appUser.avatar || null);
+    }
+  }, [appUser]);
+
+  const handleAvatarUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = e.target?.result as string;
+        setAvatarPreview(result);
+        setFormData(prev => ({ ...prev, avatar: result }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleInputChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveProfile = async () => {
+    if (!appUser) return;
+
+    setLoading(true);
+    try {
+      // Update user profile in database
+      const userRef = ref(db, `users/${appUser.uid}`);
+      await update(userRef, {
+        name: formData.name,
+        phoneNumber: formData.phoneNumber,
+        dateOfBirth: formData.dateOfBirth,
+        preferredLanguage: formData.preferredLanguage,
+        timezone: formData.timezone,
+        avatar: formData.avatar,
+      });
+
+      toast({
+        title: "Profile Updated",
+        description: "Your profile has been updated successfully.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update profile",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!appUser) {
+    return (
+      <div className="min-h-screen bg-background">
+        <DashboardHeader onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
+        <div className="flex w-full">
+          <DashboardSidebar
+            isOpen={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
+          />
+          <main className="flex-1 p-6 lg:p-8 flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading profile...</p>
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -26,231 +154,250 @@ export default function Settings() {
         />
 
         <main className="flex-1 p-6 lg:p-8">
-          <div className="max-w-4xl space-y-6">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-              <p className="text-muted-foreground mt-1">
-                Manage your account settings and preferences
+          <div className="max-w-4xl mx-auto space-y-8">
+            {/* Header Section */}
+            <div className="space-y-2">
+              <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text text-transparent">
+                Profile Settings
+              </h1>
+              <p className="text-muted-foreground text-lg">
+                Manage your personal information and account preferences
               </p>
             </div>
 
-            <Tabs defaultValue="profile" className="space-y-6">
-              <TabsList>
-                <TabsTrigger value="profile" className="gap-2">
-                  <User className="h-4 w-4" />
-                  Profile
-                </TabsTrigger>
-                <TabsTrigger value="notifications" className="gap-2">
-                  <Bell className="h-4 w-4" />
-                  Notifications
-                </TabsTrigger>
-                <TabsTrigger value="security" className="gap-2">
-                  <Lock className="h-4 w-4" />
-                  Security
-                </TabsTrigger>
-                <TabsTrigger value="appearance" className="gap-2">
-                  <Palette className="h-4 w-4" />
-                  Appearance
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="profile" className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Profile Information</CardTitle>
-                    <CardDescription>
-                      Update your personal information and profile picture
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="flex items-center gap-6">
-                      <Avatar className="h-20 w-20">
-                        <AvatarImage src={currentUser.avatar} alt={currentUser.name} />
-                        <AvatarFallback>{currentUser.name.substring(0, 2)}</AvatarFallback>
+            <div className="grid gap-8">
+              {/* Profile Card */}
+              <Card className="border-l-4 border-l-primary shadow-sm">
+                <CardHeader className="pb-4">
+                  <CardTitle className="flex items-center gap-3 text-xl">
+                    <div className="p-2 bg-primary/10 rounded-lg">
+                      <User className="h-5 w-5 text-primary" />
+                    </div>
+                    Personal Information
+                  </CardTitle>
+                  <CardDescription className="text-base">
+                    Update your personal details and profile information
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-8">
+                  {/* Profile Picture Section */}
+                  <div className="flex items-start gap-6 p-4 bg-muted/30 rounded-lg">
+                    <div className="flex-shrink-0">
+                      <Avatar className="h-24 w-24 border-4 border-background shadow-md">
+                        <AvatarImage src={avatarPreview || appUser.avatar} alt={appUser.name} />
+                        <AvatarFallback className="text-xl font-semibold bg-primary/10">
+                          {appUser.name.substring(0, 2).toUpperCase()}
+                        </AvatarFallback>
                       </Avatar>
-                      <div className="space-y-2">
-                        <Button variant="outline" size="sm">
-                          Change Avatar
-                        </Button>
-                        <p className="text-sm text-muted-foreground">
-                          JPG, PNG or GIF. Max size 2MB
+                    </div>
+                    <div className="space-y-3 flex-1">
+                      <div>
+                        <h3 className="font-medium text-lg">Profile Photo</h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          JPG, PNG or GIF. Maximum file size 2MB
                         </p>
                       </div>
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="name">Full Name</Label>
-                        <Input id="name" defaultValue={currentUser.name} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="email">Email</Label>
-                        <Input id="email" type="email" defaultValue={currentUser.email} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="role">Role</Label>
-                        <Input id="role" defaultValue={currentUser.role} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="timezone">Timezone</Label>
-                        <Input id="timezone" defaultValue="UTC-5 (Eastern Time)" />
-                      </div>
-                    </div>
-
-                    <Button>Save Changes</Button>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="notifications" className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Notification Preferences</CardTitle>
-                    <CardDescription>
-                      Choose how you want to be notified
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="task-assigned">Task Assigned</Label>
-                        <p className="text-sm text-muted-foreground">
-                          Get notified when a task is assigned to you
-                        </p>
-                      </div>
-                      <Switch id="task-assigned" defaultChecked />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="task-comment">Task Comments</Label>
-                        <p className="text-sm text-muted-foreground">
-                          Get notified when someone comments on your tasks
-                        </p>
-                      </div>
-                      <Switch id="task-comment" defaultChecked />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="mentions">Mentions</Label>
-                        <p className="text-sm text-muted-foreground">
-                          Get notified when someone mentions you
-                        </p>
-                      </div>
-                      <Switch id="mentions" defaultChecked />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="due-dates">Due Date Reminders</Label>
-                        <p className="text-sm text-muted-foreground">
-                          Get notified about upcoming task due dates
-                        </p>
-                      </div>
-                      <Switch id="due-dates" defaultChecked />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="email-notifications">Email Notifications</Label>
-                        <p className="text-sm text-muted-foreground">
-                          Receive notification emails
-                        </p>
-                      </div>
-                      <Switch id="email-notifications" />
-                    </div>
-
-                    <Button>Save Preferences</Button>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="security" className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Change Password</CardTitle>
-                    <CardDescription>
-                      Update your password to keep your account secure
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="current-password">Current Password</Label>
-                      <Input id="current-password" type="password" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="new-password">New Password</Label>
-                      <Input id="new-password" type="password" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="confirm-password">Confirm New Password</Label>
-                      <Input id="confirm-password" type="password" />
-                    </div>
-                    <Button>Update Password</Button>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Two-Factor Authentication</CardTitle>
-                    <CardDescription>
-                      Add an extra layer of security to your account
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="2fa">Enable 2FA</Label>
-                        <p className="text-sm text-muted-foreground">
-                          Require a verification code in addition to your password
-                        </p>
-                      </div>
-                      <Switch id="2fa" />
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="appearance" className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Theme</CardTitle>
-                    <CardDescription>
-                      Customize the appearance of the application
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="dark-mode">Dark Mode</Label>
-                        <p className="text-sm text-muted-foreground">
-                          Use dark theme across the application
-                        </p>
-                      </div>
-                      <Switch id="dark-mode" />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Accent Color</Label>
-                      <div className="flex gap-2">
-                        {["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"].map(
-                          (color) => (
-                            <button
-                              key={color}
-                              className="h-10 w-10 rounded-lg border-2 border-border hover:scale-110 transition-transform"
-                              style={{ backgroundColor: color }}
-                            />
-                          )
+                      <div className="flex gap-3">
+                        <Input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleAvatarUpload}
+                          className="hidden"
+                          id="avatar-upload"
+                        />
+                        <Label htmlFor="avatar-upload" className="cursor-pointer">
+                          <Button variant="outline" size="sm" className="gap-2">
+                            <Upload className="h-4 w-4" />
+                            Change Photo
+                          </Button>
+                        </Label>
+                        {avatarPreview && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => {
+                              setAvatarPreview(null);
+                              setFormData(prev => ({ ...prev, avatar: "" }));
+                            }}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            Remove
+                          </Button>
                         )}
                       </div>
                     </div>
+                  </div>
 
-                    <Button>Save Appearance</Button>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
+                  {/* Basic Information Grid */}
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <div className="space-y-3">
+                      <Label htmlFor="name" className="flex items-center gap-2 text-sm font-medium">
+                        <User className="h-4 w-4 text-muted-foreground" />
+                        Full Name
+                      </Label>
+                      <Input
+                        id="name"
+                        value={formData.name}
+                        onChange={(e) => handleInputChange("name", e.target.value)}
+                        placeholder="Enter your full name"
+                        className="h-11"
+                      />
+                    </div>
+                    <div className="space-y-3">
+                      <Label htmlFor="email" className="flex items-center gap-2 text-sm font-medium">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        Email Address
+                      </Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={formData.email}
+                        disabled
+                        className="h-11 bg-muted/50"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Email address cannot be changed
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Contact Information Grid */}
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <div className="space-y-3">
+                      <Label htmlFor="phoneNumber" className="flex items-center gap-2 text-sm font-medium">
+                        <Phone className="h-4 w-4 text-muted-foreground" />
+                        Phone Number
+                      </Label>
+                      <Input
+                        id="phoneNumber"
+                        value={formData.phoneNumber}
+                        onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
+                        placeholder="+1 (555) 123-4567"
+                        className="h-11"
+                      />
+                    </div>
+                    <div className="space-y-3">
+                      <Label htmlFor="dateOfBirth" className="flex items-center gap-2 text-sm font-medium">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        Date of Birth
+                      </Label>
+                      <Input
+                        id="dateOfBirth"
+                        type="date"
+                        value={formData.dateOfBirth}
+                        onChange={(e) => handleInputChange("dateOfBirth", e.target.value)}
+                        className="h-11"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Preferences Grid */}
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <div className="space-y-3">
+                      <Label htmlFor="preferredLanguage" className="flex items-center gap-2 text-sm font-medium">
+                        <Globe className="h-4 w-4 text-muted-foreground" />
+                        Preferred Language
+                      </Label>
+                      <Select
+                        value={formData.preferredLanguage}
+                        onValueChange={(value) => handleInputChange("preferredLanguage", value)}
+                      >
+                        <SelectTrigger className="h-11">
+                          <SelectValue placeholder="Select language" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {LANGUAGES.map((lang) => (
+                            <SelectItem key={lang.value} value={lang.value}>
+                              {lang.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-3">
+                      <Label htmlFor="timezone" className="flex items-center gap-2 text-sm font-medium">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                        Timezone
+                      </Label>
+                      <Select
+                        value={formData.timezone}
+                        onValueChange={(value) => handleInputChange("timezone", value)}
+                      >
+                        <SelectTrigger className="h-11">
+                          <SelectValue placeholder="Select timezone" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TIMEZONES.map((tz) => (
+                            <SelectItem key={tz.value} value={tz.value}>
+                              {tz.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Account Information Card */}
+              <Card className="bg-muted/20 border shadow-sm">
+                <CardHeader className="pb-4">
+                  <CardTitle className="text-lg">Account Information</CardTitle>
+                  <CardDescription>
+                    Your account details and membership information
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <div className="space-y-3">
+                      <Label className="text-sm font-medium">Account Role</Label>
+                      <div className="flex items-center gap-3 p-3 bg-background rounded-lg border">
+                        <div className={`w-3 h-3 rounded-full ${
+                          USER_ROLES.find(r => r.value === appUser.role)?.color || "bg-gray-400"
+                        }`} />
+                        <span className="font-medium">
+                          {USER_ROLES.find(r => r.value === appUser.role)?.label || appUser.role}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <Label className="text-sm font-medium">Member Since</Label>
+                      <div className="p-3 bg-background rounded-lg border">
+                        <p className="font-medium">
+                          {new Date(appUser.createdAt).toLocaleDateString("en-US", {
+                            year: "numeric",
+                            month: "long",
+                            day: "numeric",
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Action Button */}
+              <div className="flex justify-end">
+                <Button 
+                  onClick={handleSaveProfile} 
+                  disabled={loading}
+                  size="lg"
+                  className="gap-2 px-8"
+                >
+                  {loading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4" />
+                      Save Changes
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
           </div>
         </main>
       </div>

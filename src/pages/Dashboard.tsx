@@ -1,14 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
 import { ProjectCard } from "@/components/dashboard/ProjectCard";
 import { StatsWidget } from "@/components/dashboard/StatsWidget";
+import { TaskChart } from "@/components/dashboard/TaskChart";
+import { PerformanceMetrics } from "@/components/dashboard/PerformanceMetrics";
+import { PredictiveAnalytics } from "@/components/dashboard/PredictiveAnalytics";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { projectService } from "@/services/projectService";
-import { Project } from "@/types";
+import { taskService } from "@/services/taskService";
+import { Project, Task } from "@/types";
 import { useToast } from "@/hooks/use-toast";
 import { NewProjectDialog } from "@/components/projects/NewProjectDialog";
 
@@ -17,8 +21,9 @@ export default function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [newProjectDialogOpen, setNewProjectDialogOpen] = useState(false);
-  const { user } = useAuth();
+  const { user, appUser } = useAuth();
   const { toast } = useToast();
+  const statsWidgetRef = useRef<any>(null);
 
   useEffect(() => {
     if (user) {
@@ -29,8 +34,8 @@ export default function Dashboard() {
   const loadProjects = async () => {
     try {
       setLoading(true);
-      const userProjects = await projectService.getProjects(user!.uid);
-      setProjects(userProjects);
+      const allProjects = await projectService.getAllProjects();
+      setProjects(allProjects);
     } catch (error) {
       toast({
         title: "Error",
@@ -39,6 +44,45 @@ export default function Dashboard() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTaskStatusChange = async (taskId: string, newStatus: Task["status"]) => {
+    try {
+      await taskService.updateTaskStatus(taskId, newStatus);
+
+      // Update project task counts
+      setProjects(prevProjects =>
+        prevProjects.map(project => {
+          // Find if this task belongs to this project
+          // For now, we'll update all projects since we don't know which project the task belongs to
+          // In a real implementation, you'd need to track which project the task belongs to
+          return {
+            ...project,
+            tasksCount: {
+              ...project.tasksCount,
+              // This is a simplified update - in reality you'd need to know the old status
+              // For now, we'll trigger a refresh of the stats widget
+            }
+          };
+        })
+      );
+
+      // Trigger StatsWidget refresh
+      if (statsWidgetRef.current?.refresh) {
+        statsWidgetRef.current.refresh();
+      }
+
+      toast({
+        title: "Task updated",
+        description: "Task status has been updated successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update task status",
+        variant: "destructive",
+      });
     }
   };
 
@@ -68,8 +112,12 @@ export default function Dashboard() {
               </Button>
             </div>
 
+
             {/* Stats */}
-            <StatsWidget />
+            <StatsWidget ref={statsWidgetRef} />
+
+            {/* Charts */}
+            <TaskChart />
 
             {/* Projects Grid */}
             <div>
@@ -98,10 +146,14 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Activity Feed */}
+            {/* Activity Feed, Performance, and Analytics */}
             {projects.length > 0 && (
-              <div className="max-w-2xl">
-                <ActivityFeed />
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="max-w-2xl">
+                  <ActivityFeed />
+                </div>
+                <PerformanceMetrics />
+                <PredictiveAnalytics />
               </div>
             )}
           </div>

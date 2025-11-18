@@ -4,7 +4,7 @@ import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
 import { teamService } from "@/services/teamService";
 import { taskService } from "@/services/taskService";
 import { useAuth } from "@/contexts/AuthContext";
-import { TeamMember } from "@/types";
+import { User } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Plus, Mail, FolderKanban, CheckCircle2, Clock, Loader2 } from "lucide-react";
 
-interface UserWithStats extends TeamMember {
+interface UserWithStats extends User {
   taskStats: {
     total: number;
     completed: number;
@@ -21,7 +21,7 @@ interface UserWithStats extends TeamMember {
 }
 
 export default function Team() {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, getAllUsers } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [users, setUsers] = useState<UserWithStats[]>([]);
@@ -31,26 +31,34 @@ export default function Team() {
   useEffect(() => {
     const fetchTeamData = async () => {
       if (!currentUser) return;
-      
+
       try {
         setLoading(true);
-        
-        // Fetch all team members to get users who exist in the system
-        const teamMembers = await teamService.getTeamMembers([]);
-        
-        // Calculate task stats for each team member
+
+        // Fetch all users
+        const allUsers = await getAllUsers();
+
+        if (allUsers.length === 0) {
+          setUsers([]);
+          setLoading(false);
+          return;
+        }
+
+        // Calculate task stats for each user
         const usersWithStats = await Promise.all(
-          teamMembers.map(async (member) => {
+          allUsers.map(async (user) => {
             let totalTasks = 0;
             let completedTasks = 0;
             let inProgressTasks = 0;
-            
+
             // Get tasks for each project the user is part of
-            for (const projectId of member.projectIds) {
+            const projectIds = user.projectIds || [];
+
+            for (const projectId of projectIds) {
               try {
                 const tasks = await taskService.getTasks(projectId);
-                const userTasks = tasks.filter(task => task.assigneeId === member.id);
-                
+                const userTasks = tasks.filter(task => task.assigneeId === user.uid);
+
                 totalTasks += userTasks.length;
                 completedTasks += userTasks.filter(t => t.status === "done").length;
                 inProgressTasks += userTasks.filter(t => t.status === "in-progress").length;
@@ -58,18 +66,20 @@ export default function Team() {
                 console.warn(`Failed to fetch tasks for project ${projectId}:`, error);
               }
             }
-            
-            return {
-              ...member,
+
+            const userWithStats = {
+              ...user,
+              projectIds: user.projectIds || [], // Ensure projectIds is always an array
               taskStats: {
                 total: totalTasks,
                 completed: completedTasks,
                 inProgress: inProgressTasks
               }
             };
+            return userWithStats;
           })
         );
-        
+
         setUsers(usersWithStats);
       } catch (err) {
         console.error('Error fetching team data:', err);
@@ -80,7 +90,7 @@ export default function Team() {
     };
 
     fetchTeamData();
-  }, [currentUser]);
+  }, [currentUser, getAllUsers]);
 
   const filteredUsers = users.filter((user) =>
     user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -90,8 +100,16 @@ export default function Team() {
 
   const roleColors: Record<string, string> = {
     "admin": "bg-red-500/10 text-red-700 dark:text-red-400",
-    "manager": "bg-purple-500/10 text-purple-700 dark:text-purple-400",
-    "member": "bg-blue-500/10 text-blue-700 dark:text-blue-400",
+    "senior_software_engineer": "bg-blue-600/10 text-blue-700 dark:text-blue-400",
+    "software_engineer": "bg-blue-500/10 text-blue-700 dark:text-blue-400",
+    "junior_software_engineer": "bg-blue-400/10 text-blue-600 dark:text-blue-300",
+    "tech_lead": "bg-purple-600/10 text-purple-700 dark:text-purple-400",
+    "engineering_manager": "bg-purple-500/10 text-purple-700 dark:text-purple-400",
+    "devops_engineer": "bg-orange-500/10 text-orange-700 dark:text-orange-400",
+    "qa_engineer": "bg-pink-500/10 text-pink-700 dark:text-pink-400",
+    "product_manager": "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
+    "ux_designer": "bg-indigo-500/10 text-indigo-700 dark:text-indigo-400",
+    "data_engineer": "bg-green-500/10 text-green-700 dark:text-green-400",
   };
 
   const getInitials = (name: string) => {
@@ -144,7 +162,7 @@ export default function Team() {
   }
 
   // Calculate overall stats
-  const totalProjects = [...new Set(users.flatMap(u => u.projectIds))].length;
+  const totalProjects = [...new Set(users.flatMap(u => u.projectIds || []))].length;
   const totalCompletedTasks = users.reduce((sum, user) => sum + user.taskStats.completed, 0);
   const totalInProgressTasks = users.reduce((sum, user) => sum + user.taskStats.inProgress, 0);
 
@@ -233,7 +251,7 @@ export default function Team() {
               {filteredUsers.length > 0 ? (
                 filteredUsers.map((user) => {
                   return (
-                    <Card key={user.id} className="hover:shadow-lg transition-shadow">
+                    <Card key={user.uid} className="hover:shadow-lg transition-shadow">
                       <CardHeader>
                         <div className="flex items-start gap-4">
                           <Avatar className="h-16 w-16">

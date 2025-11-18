@@ -8,11 +8,15 @@ import { NewTaskDialog } from "@/components/tasks/NewTaskDialog";
 import { TaskListView } from "@/components/tasks/TaskListView";
 import { TaskCalendarView } from "@/components/tasks/TaskCalendarView";
 import { Button } from "@/components/ui/button";
-import { Plus, List, Calendar, LayoutGrid } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { Plus, List, Calendar, LayoutGrid, CheckCircle, Clock, Circle } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { taskService } from "@/services/taskService";
+import { projectService } from "@/services/projectService";
 import { Task } from "@/types";
+import type { Project } from "@/types";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Project() {
@@ -24,23 +28,34 @@ export default function Project() {
   const [newTaskDialogOpen, setNewTaskDialogOpen] = useState(false);
   const [view, setView] = useState<"kanban" | "list" | "calendar">("kanban");
   const [projectTasks, setProjectTasks] = useState<Task[]>([]);
+  const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (id && user) {
-      loadTasks();
+      loadProjectData();
     }
   }, [id, user]);
 
-  const loadTasks = async () => {
+  const loadProjectData = async () => {
     try {
       setLoading(true);
-      const tasks = await taskService.getTasks(id!);
+      // Load both project info and tasks in parallel
+      const [tasks, projects] = await Promise.all([
+        taskService.getTasks(id!),
+        projectService.getAllProjects()
+      ]);
+
       setProjectTasks(tasks);
+
+      // Find the current project
+      const project = projects.find(p => p.id === id);
+      setCurrentProject(project || null);
+
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to load tasks",
+        description: "Failed to load project data",
         variant: "destructive",
       });
     } finally {
@@ -69,6 +84,24 @@ export default function Project() {
     }
   };
 
+  // Calculate task counts and progress
+  const taskCounts = {
+    todo: projectTasks.filter(task => task.status === "todo").length,
+    inProgress: projectTasks.filter(task => task.status === "in-progress").length,
+    done: projectTasks.filter(task => task.status === "done").length,
+  };
+
+  const totalTasks = projectTasks.length;
+  const completedTasks = taskCounts.done;
+  const progressPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  console.log('Project Progress Debug:', {
+    totalTasks,
+    completedTasks,
+    progressPercentage,
+    taskCounts
+  });
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -90,22 +123,58 @@ export default function Project() {
         <main className="flex-1 p-6 lg:p-8">
           <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-lg bg-primary" />
-                <div>
-                  <h1 className="text-3xl font-bold tracking-tight">
-                    Project
-                  </h1>
-                  <p className="text-muted-foreground mt-1">
-                    Manage your tasks
-                  </p>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="h-12 w-12 rounded-lg bg-primary" />
+                  <div>
+                    <h1 className="text-3xl font-bold tracking-tight">
+                      {currentProject?.name || "Project"}
+                    </h1>
+                    <p className="text-muted-foreground mt-1">
+                      {currentProject?.description || "Manage your tasks"}
+                    </p>
+                  </div>
+                </div>
+                <Button onClick={() => setNewTaskDialogOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Task
+                </Button>
+              </div>
+
+              {/* Progress and Task Counts */}
+              <div className="bg-card rounded-lg border p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div>
+                      <h3 className="font-semibold">Project Progress</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {completedTasks} of {totalTasks} tasks completed
+                      </p>
+                    </div>
+                    <div className="text-2xl font-bold text-primary">
+                      {progressPercentage}% <span className="text-xs text-muted-foreground">(Debug: {totalTasks} total, {completedTasks} done)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <Progress value={progressPercentage} className="w-full h-4 border border-primary/20 rounded-full" />
+
+                <div className="flex items-center gap-4">
+                  <Badge variant="outline" className="flex items-center gap-2">
+                    <Circle className="h-3 w-3 text-blue-500" />
+                    <span className="text-xs">To Do: {taskCounts.todo}</span>
+                  </Badge>
+                  <Badge variant="outline" className="flex items-center gap-2">
+                    <Clock className="h-3 w-3 text-yellow-500" />
+                    <span className="text-xs">In Progress: {taskCounts.inProgress}</span>
+                  </Badge>
+                  <Badge variant="outline" className="flex items-center gap-2">
+                    <CheckCircle className="h-3 w-3 text-green-500" />
+                    <span className="text-xs">Done: {taskCounts.done}</span>
+                  </Badge>
                 </div>
               </div>
-              <Button onClick={() => setNewTaskDialogOpen(true)}>
-                <Plus className="mr-2 h-4 w-4" />
-                New Task
-              </Button>
             </div>
 
             {/* View Selector */}
@@ -141,6 +210,7 @@ export default function Project() {
               <TaskListView
                 tasks={projectTasks}
                 onTaskClick={setSelectedTask}
+                onTaskStatusChange={handleTaskStatusChange}
               />
             )}
 
@@ -164,7 +234,7 @@ export default function Project() {
         open={newTaskDialogOpen}
         onOpenChange={setNewTaskDialogOpen}
         projectId={id}
-        onTaskCreated={loadTasks}
+        onTaskCreated={loadProjectData}
       />
     </div>
   );
